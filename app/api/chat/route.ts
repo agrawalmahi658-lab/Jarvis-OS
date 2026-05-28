@@ -8,11 +8,6 @@ const model = genAI.getGenerativeModel({
   model: "gemini-1.5-flash",
 });
 
-const JARVIS_SYSTEM = `
-You are J.A.R.V.I.S. from Iron Man.
-Intelligent, futuristic, witty, professional.
-`;
-
 export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
@@ -20,26 +15,23 @@ export async function POST(req: Request) {
     const lastMessage =
       messages[messages.length - 1]?.content || "";
 
-    const prompt = `
-${JARVIS_SYSTEM}
-
-User: ${lastMessage}
-`;
-
-    const result = await model.generateContent(prompt);
+    const result = await model.generateContent(
+      `You are JARVIS from Iron Man.\nUser: ${lastMessage}`
+    );
 
     const response = await result.response;
 
     const text = response.text();
 
-    const encoder = new TextEncoder();
-
+    // IMPORTANT STREAM FORMAT
     const stream = new ReadableStream({
       start(controller) {
-        const line = `0:${JSON.stringify(text)}\n`;
+        const encoder = new TextEncoder();
 
         controller.enqueue(
-          encoder.encode(line)
+          encoder.encode(
+            `0:${JSON.stringify(text)}\n`
+          )
         );
 
         controller.close();
@@ -48,16 +40,21 @@ User: ${lastMessage}
 
     return new Response(stream, {
       headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+        "Content-Type": "text/plain; charset=utf-8",
       },
     });
-  } catch (error) {
-    console.error("Gemini API Error:", error);
 
-    return new Response("Error", {
-      status: 500,
-    });
+  } catch (error) {
+    console.error(error);
+
+    return new Response(
+      `0:"System Error"\n`,
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+      }
+    );
   }
 }
