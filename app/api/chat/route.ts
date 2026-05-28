@@ -1,11 +1,7 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 
-const genAI = new GoogleGenerativeAI(
-  process.env.GEMINI_API_KEY!
-);
-
-const model = genAI.getGenerativeModel({
-  model: "gemini-1.5-flash",
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
 });
 
 export async function POST(req: Request) {
@@ -15,13 +11,25 @@ export async function POST(req: Request) {
     const lastMessage =
       messages[messages.length - 1]?.content || "";
 
-    const result = await model.generateContent(
-      `You are JARVIS from Iron Man.\nUser: ${lastMessage}`
-    );
+    const completion =
+      await groq.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are JARVIS from Iron Man. Intelligent, futuristic, witty, professional.",
+          },
+          {
+            role: "user",
+            content: lastMessage,
+          },
+        ],
+        model: "llama-3.3-70b-versatile",
+      });
 
-    const response = await result.response;
-
-    const text = response.text();
+    const text =
+      completion.choices[0]?.message?.content ||
+      "No response";
 
     // IMPORTANT STREAM FORMAT
     const stream = new ReadableStream({
@@ -40,10 +48,10 @@ export async function POST(req: Request) {
 
     return new Response(stream, {
       headers: {
-        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Type":
+          "text/plain; charset=utf-8",
       },
     });
-
   } catch (error) {
     console.error(error);
 
@@ -51,9 +59,6 @@ export async function POST(req: Request) {
       `0:"System Error"\n`,
       {
         status: 500,
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-        },
       }
     );
   }
