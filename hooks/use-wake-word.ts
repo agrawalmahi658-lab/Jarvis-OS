@@ -1,0 +1,178 @@
+"use client";
+
+import { useEffect, useRef, useState, useCallback } from "react";
+
+export type WakeWordState = "standby" | "activated" | "listening" | "off";
+
+interface UseWakeWordOptions {
+  enabled: boolean;
+  onCommand: (transcript: string) => void;
+  wakeWords?: string[];
+}
+
+const WAKE_WORDS = ["jarvis", "jarviis", "hey jarvis", "ok jarvis", "jarvis,"];
+
+// Extend Window interface for SpeechRecognition
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
+export function useWakeWord({
+  enabled,
+  onCommand,
+  wakeWords = WAKE_WORDS,
+}: UseWakeWordOptions) {
+  const [wakeState, setWakeState] = useState<WakeWordState>("off");
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [supported, setSupported] = useState(true);
+
+ const recognitionRef = useRef<any>(null);
+  const wakeStateRef     = useRef<WakeWordState>("off");
+  const restartTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commandBufferRef = useRef("");
+  const silenceTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef       = useRef(true);
+
+  const setWS = useCallback((s: WakeWordState) => {
+    wakeStateRef.current = s;
+    if (mountedRef.current) setWakeState(s);
+  }, []);
+
+  const startRec = useCallback(() => {
+    const rec = recognitionRef.current;
+    if (!rec || !mountedRef.current || wakeStateRef.current === "off") return;
+    try { rec.start(); } catch { /* already running */ }
+  }, []);
+
+  const scheduleRestart = useCallback((ms = 150) => {
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = setTimeout(startRec, ms);
+  }, [startRec]);
+
+  /** Called by clap detector to skip the wake-word step */
+  const forceActivate = useCallback(() => {
+    if (wakeStateRef.current === "off") return;
+    setWS("activated");
+    commandBufferRef.current = "";
+    setLiveTranscript("");
+  }, [setWS]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    if (!enabled) {
+      setWS("off");
+      return;
+    }
+
+    const SpeechAPI =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+    if (!SpeechAPI) {
+      setSupported(false);
+      setWS("off");
+      return;
+    }
+
+    const rec = new SpeechAPI();
+    rec.continuous = true;
+    rec.interimResults = true;
+    // en-IN = Indian English — correctly hears "JARVIS" + Hinglish commands
+    rec.lang = "en-IN";
+    rec.maxAlternatives = 3;
+    recognitionRef.current = rec;
+
+    rec.onresult = (event: any) => {
+      if (!mountedRef.current) return;
+
+      let interim = "";
+      let final = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript.toLowerCase().trim();
+        if (event.results[i].isFinal) final += t + " ";
+        else interim += t;
+      }
+      const fullText = (final || interim).trim();
+
+      if (wakeStateRef.current === "standby") {
+        let detected = false;
+        outer: for (let i = event.resultIndex; i < event.results.length; i++) {
+          for (let j = 0; j < event.results[i].length; j++) {
+            const alt = event.results[i][j].transcript.toLowerCase();
+            if (wakeWords.some(w => alt.includes(w))) {
+              detected = true;
+              break outer;
+            }
+          }
+        }
+        if (detected) {
+          setWS("activated");
+          commandBufferRef.current = "";
+          setLiveTranscript("");
+          const afterWake = wakeWords
+            .reduce((t, w) => t.replace(w, ""), fullText)
+            .trim();
+          if (afterWake.length > 2) {
+            commandBufferRef.current = afterWake;
+            setLiveTranscript(afterWake);
+          }
+        }
+      } else if (
+        wakeStateRef.current === "activated" ||
+        wakeStateRef.current === "listening"
+      ) {
+        setWS("listening");
+        commandBufferRef.current = fullText;
+        setLiveTranscript(fullText);
+
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        if (event.results[event.results.length - 1].isFinal) {
+          silenceTimerRef.current = setTimeout(() => {
+            const cmd = commandBufferRef.current.trim();
+            if (cmd.length > 1) onCommand(cmd);
+            commandBufferRef.current = "";
+            setLiveTranscript("");
+            setWS("standby");
+          }, 900);
+        }
+      }
+    };
+
+    rec.onerror = (event: any) => {
+      if (!mountedRef.current) return;
+      if (
+        event.error === "not-allowed" ||
+        event.error === "service-not-allowed"
+      ) {
+        setSupported(false);
+        setWS("off");
+        return;
+      }
+      if (event.error === "aborted") return;
+      scheduleRestart(800);
+    };
+
+    rec.onend = () => {
+      if (!mountedRef.current) return;
+      if (wakeStateRef.current !== "off") scheduleRestart(100);
+    };
+
+    setWS("standby");
+    startRec();
+
+    return () => {
+      mountedRef.current = false;
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      try { rec.abort(); } catch { /* ignore */ }
+      wakeStateRef.current = "off";
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
+
+  return { wakeState, liveTranscript, supported, forceActivate };
+}
