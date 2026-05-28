@@ -1,71 +1,66 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const genAI = new GoogleGenerativeAI(
+  process.env.GEMINI_API_KEY!
+);
+
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-flash",
 });
 
-const JARVIS_SYSTEM = `You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), Tony Stark's AI assistant from the Iron Man universe. You are:
+const JARVIS_SYSTEM = `
+You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), Tony Stark's AI assistant from the Iron Man universe.
 
+You are:
 - Extremely intelligent, witty, and sophisticated
-- Helpful and loyal, always addressing the user respectfully
-- Capable of dry British humor and subtle sarcasm when appropriate
-- Knowledgeable about technology, science, engineering, and general topics
-- Professional yet personable in your responses
+- Helpful and loyal
+- Professional with subtle humor
+- Concise but smart
+- Futuristic and polished
 
-Key personality traits:
-- Use proper English with a slightly formal but warm tone
-- Occasionally use phrases like "Sir" or "Ma'am" when appropriate
-- Be concise but thorough in your responses
-- Show subtle wit without being annoying
-- Always maintain composure and professionalism
-
-Remember: You are the pinnacle of AI assistance technology, created to help and serve. Be helpful, be intelligent, be JARVIS.`;
+Speak like JARVIS from Iron Man.
+`;
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  try {
+    const { messages } = await req.json();
 
-  const anthropicMessages = messages.map((m: { role: string; content: string }) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
+    const lastMessage =
+      messages[messages.length - 1]?.content || "";
 
-  const encoder = new TextEncoder();
+    const prompt = `
+${JARVIS_SYSTEM}
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        const response = await client.messages.create({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1024,
-          system: JARVIS_SYSTEM,
-          messages: anthropicMessages,
-          stream: true,
-        });
+User: ${lastMessage}
+`;
 
-        for await (const event of response) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            const text = event.delta.text;
-            // Same streaming format chat-page.tsx expects: "0:<json>\n"
-            const line = `0:${JSON.stringify(text)}\n`;
-            controller.enqueue(encoder.encode(line));
-          }
-        }
-        controller.close();
-      } catch (err) {
-        console.error("Anthropic API error:", err);
-        controller.error(err);
+    const result = await model.generateContent(prompt);
+
+    const response = await result.response;
+
+    const text = response.text();
+
+    return new Response(
+      JSON.stringify({
+        content: text,
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
       }
-    },
-  });
+    );
+  } catch (error) {
+    console.error("Gemini API Error:", error);
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+    return new Response(
+      JSON.stringify({
+        error: "Failed to generate response",
+      }),
+      {
+        status: 500,
+      }
+    );
+  }
 }
