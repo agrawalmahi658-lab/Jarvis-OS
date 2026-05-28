@@ -111,6 +111,51 @@ export default function ChatPage() {
 
     stop();
     const userMsg = text.trim();
+    // COMMAND ENGINE
+
+const lower = userMsg.toLowerCase();
+
+if (lower.includes("open spotify")) {
+  window.open("https://spotify.com", "_blank");
+  speak("Opening Spotify");
+  return;
+}
+
+if (lower.includes("open youtube")) {
+  window.open("https://youtube.com", "_blank");
+  speak("Opening YouTube");
+  return;
+}
+
+if (lower.includes("open google")) {
+  window.open("https://google.com", "_blank");
+  speak("Opening Google");
+  return;
+}
+
+if (lower.includes("open instagram")) {
+  window.open("https://instagram.com", "_blank");
+  speak("Opening Instagram");
+  return;
+}
+
+if (lower.includes("play music")) {
+  window.open("https://open.spotify.com", "_blank");
+  speak("Playing music");
+  return;
+}
+
+if (lower.includes("search for")) {
+  const query = userMsg.replace(/search for/i, "").trim();
+
+  window.open(
+    `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+    "_blank"
+  );
+
+  speak(`Searching for ${query}`);
+  return;
+}
     setInput("");
 
     const userMsgId = Date.now().toString();
@@ -132,39 +177,19 @@ export default function ChatPage() {
       if (!response.body) throw new Error("No body");
 
       setOrbState("speaking");
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = "";
+     const data = await response.json();
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        
-        // Parse SSE format
-        const lines = chunk.split("\n");
-        for (const line of lines) {
-          if (line.startsWith("0:")) {
-            // AI SDK text stream format
-            try {
-              const text = JSON.parse(line.slice(2));
-              fullResponse += text;
-              setMessages(prev =>
-                prev.map(m =>
-                  m.id === asstMsgId
-                    ? { ...m, content: fullResponse }
-                    : m
-                )
-              );
-            } catch {
-              // Ignore parse errors
-            }
-          }
-        }
-      }
+const fullResponse = data.text;
 
-      if (fullResponse.trim()) speak(fullResponse);
+setMessages(prev =>
+  prev.map(m =>
+    m.id === asstMsgId
+      ? { ...m, content: fullResponse }
+      : m
+  )
+);
+
+speak(fullResponse);
     } catch (err) {
       console.error(err);
       setMessages(prev =>
