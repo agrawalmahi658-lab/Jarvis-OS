@@ -9,34 +9,39 @@ export function useTTS() {
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
-
-    // Deep male style
     utterance.pitch = 0.7;
     utterance.rate = 0.92;
     utterance.volume = 1;
 
-    const voices = window.speechSynthesis.getVoices();
+    const pickVoice = () => {
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length === 0) return null;
 
-    // Prefer MALE voices
-    const maleVoice =
-      voices.find(v =>
-        v.name.toLowerCase().includes("david")
-      ) ||
-      voices.find(v =>
-        v.name.toLowerCase().includes("mark")
-      ) ||
-      voices.find(v =>
-        v.name.toLowerCase().includes("male")
-      ) ||
-      voices.find(v =>
-        v.lang.includes("en")
+      return (
+        voices.find((v) => v.name.toLowerCase().includes("david")) ||
+        voices.find((v) => v.name.toLowerCase().includes("mark")) ||
+        voices.find((v) => v.name.toLowerCase().includes("google uk english male")) ||
+        voices.find((v) => v.name.toLowerCase().includes("male")) ||
+        voices.find((v) => v.lang.startsWith("en") && !v.name.toLowerCase().includes("female"))
       );
+    };
 
-    if (maleVoice) {
-      utterance.voice = maleVoice;
+    const trySpeak = () => {
+      const voice = pickVoice();
+      if (voice) utterance.voice = voice;
+      window.speechSynthesis.speak(utterance);
+    };
+
+    // Voices already loaded
+    if (window.speechSynthesis.getVoices().length > 0) {
+      trySpeak();
+    } else {
+      // Wait for voices to load (first time)
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        trySpeak();
+      };
     }
-
-    window.speechSynthesis.speak(utterance);
   }, []);
 
   const stop = useCallback(() => {
