@@ -9,16 +9,8 @@ const model = genAI.getGenerativeModel({
 });
 
 const JARVIS_SYSTEM = `
-You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), Tony Stark's AI assistant from the Iron Man universe.
-
-You are:
-- Extremely intelligent, witty, and sophisticated
-- Helpful and loyal
-- Professional with subtle humor
-- Concise but smart
-- Futuristic and polished
-
-Speak like JARVIS from Iron Man.
+You are J.A.R.V.I.S. from Iron Man.
+Intelligent, futuristic, witty, professional.
 `;
 
 export async function POST(req: Request) {
@@ -40,27 +32,32 @@ User: ${lastMessage}
 
     const text = response.text();
 
-    return new Response(
-      JSON.stringify({
-        content: text,
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream({
+      start(controller) {
+        const line = `0:${JSON.stringify(text)}\n`;
+
+        controller.enqueue(
+          encoder.encode(line)
+        );
+
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
   } catch (error) {
     console.error("Gemini API Error:", error);
 
-    return new Response(
-      JSON.stringify({
-        error: "Failed to generate response",
-      }),
-      {
-        status: 500,
-      }
-    );
+    return new Response("Error", {
+      status: 500,
+    });
   }
 }
